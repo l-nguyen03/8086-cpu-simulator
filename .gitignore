@@ -1,2 +1,7 @@
 .envrc.local
 .direnv
+*.asm
+
+# Added by cargo
+
+/target

@@ -20,6 +20,7 @@
         gcc
         pkg-config
         llvmPackages.bintools
+        nasm
 
         lldb
 
