@@ -1,143 +1,103 @@
-use std::io;
+use super::{Cursor, DecodeError};
+use crate::instruction::{Operand, Width};
 
 const BYTE_REGISTER: [&str; 8] = ["al", "cl", "dl", "bl", "ah", "ch", "dh", "bh"];
 const WORD_REGISTER: [&str; 8] = ["ax", "cx", "dx", "bx", "sp", "bp", "si", "di"];
-pub(super) const REGISTER_MAPS: [[&str; 8]; 2] = [BYTE_REGISTER, WORD_REGISTER];
-
-const MOD_SHIFT: u8 = 6;
+const REGISTER_MAPS: [[&str; 8]; 2] = [BYTE_REGISTER, WORD_REGISTER];
 
 const EFFECTIVE_ADDRESS: [&str; 8] = [
     "bx + si", "bx + di", "bp + si", "bp + di", "si", "di", "bp", "bx",
 ];
 
-pub(super) const ACC_REG: [&str; 2] = ["al", "ax"];
+const ACC_REG: [&str; 2] = ["al", "ax"];
 
-const DW_MASK: u8 = 0x3;
-
-pub(super) struct InstructionFields {
-    pub(super) reg_field: usize,
-    pub(super) rm_field: usize,
+pub(super) struct ModRm {
     pub(super) mode: u8,
-    pub(super) d_bit: bool,
-    pub(super) w_bit: bool,
+    pub(super) reg: u8,
+    pub(super) rm: u8,
 }
 
-pub(super) fn format_error(error_kind: io::ErrorKind, msg: &str) -> io::Error {
-    io::Error::new(error_kind, msg)
-}
-
-fn decompose_registers(byte: u8) -> (usize, usize) {
-    let rm = usize::from(byte & 0x7);
-    let reg = usize::from((byte >> 3) & 0x7);
-    (reg, rm)
-}
-
-pub(super) fn decompose_instruction_field(bytes: &[u8]) -> io::Result<InstructionFields> {
-    if bytes.len() < 2 {
-        return Err(format_error(
-            io::ErrorKind::UnexpectedEof,
-            "Not enough bytes to decode instruction",
-        ));
-    }
-    let (reg_field, rm_field) = decompose_registers(bytes[1]);
-    let dw_field = bytes[0] & DW_MASK;
-    let mode = bytes[1] >> MOD_SHIFT;
-    Ok(InstructionFields {
-        reg_field,
-        rm_field,
-        mode,
-        d_bit: (dw_field & 0x2) != 0,
-        w_bit: (dw_field & 0x1) != 0,
-    })
-}
-
-fn format_effective_address(rm_field: usize, disp: Option<i16>) -> String {
-    let ea = EFFECTIVE_ADDRESS[rm_field];
-    match disp {
-        None | Some(0) => format!("[{ea}]"),
-        Some(d) if d < 0 => format!("[{ea} - {}]", d.unsigned_abs()),
-        Some(d) => format!("[{ea} + {d}]"),
+impl ModRm {
+    pub(super) fn from_byte(byte: u8) -> Self {
+        Self {
+            mode: byte >> 6,
+            reg: (byte >> 3) & 7,
+            rm: byte & 7,
+        }
     }
 }
 
-pub(super) fn decode_rm_field(
-    bytes: &[u8],
-    fields: &InstructionFields,
-) -> io::Result<(String, usize)> {
-    let register_map = &REGISTER_MAPS[usize::from(fields.w_bit)];
+pub(super) fn register(wide: bool, index: u8) -> &'static str {
+    REGISTER_MAPS[usize::from(wide)][usize::from(index)]
+}
 
-    match fields.mode {
-        0b01 => {
-            let disp = bytes.get(2).copied().ok_or_else(|| {
-                format_error(io::ErrorKind::UnexpectedEof, "truncated displacement")
-            })?;
-            Ok((
-                format_effective_address(fields.rm_field, Some(i16::from(disp as i8))),
-                1,
-            ))
-        }
-        0b10 => {
-            if bytes.len() < 4 {
-                return Err(format_error(
-                    io::ErrorKind::UnexpectedEof,
-                    "truncated displacement",
-                ));
-            }
-            let disp = u16::from_le_bytes([bytes[2], bytes[3]]) as i16;
-            Ok((format_effective_address(fields.rm_field, Some(disp)), 2))
-        }
-        0b11 => Ok((register_map[fields.rm_field].to_string(), 0)),
+pub(super) fn acc(wide: bool) -> &'static str {
+    ACC_REG[usize::from(wide)]
+}
+
+pub(super) fn read_modrm(cur: &mut Cursor<'_>) -> Result<ModRm, DecodeError> {
+    Ok(ModRm::from_byte(cur.u8()?))
+}
+
+pub(super) fn read_rm(
+    cur: &mut Cursor<'_>,
+    modrm: &ModRm,
+    wide: bool,
+) -> Result<Operand, DecodeError> {
+    match modrm.mode {
+        0b11 => Ok(Operand::Register(register(wide, modrm.rm))),
+        0b01 => Ok(memory_ea(modrm.rm, i16::from(cur.i8()?))),
+        0b10 => Ok(memory_ea(modrm.rm, cur.i16()?)),
         0b00 => {
-            if fields.rm_field == 0b110 {
-                if bytes.len() < 4 {
-                    return Err(format_error(
-                        io::ErrorKind::UnexpectedEof,
-                        "truncated displacement",
-                    ));
-                }
-                let addr = u16::from_le_bytes([bytes[2], bytes[3]]);
-                Ok((format!("[{addr}]"), 2))
+            if modrm.rm == 0b110 {
+                Ok(memory_direct(cur.u16()?))
             } else {
-                Ok((format_effective_address(fields.rm_field, None), 0))
+                Ok(memory_ea(modrm.rm, 0))
             }
         }
-        _ => Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("invalid mod field {:#04x}", fields.mode),
-        )),
+        mode => Err(DecodeError::InvalidMod(mode)),
     }
 }
 
-pub(super) fn decode_imm(
-    bytes: &[u8],
-    is_wide: bool,
-    is_sign_extended: bool,
-    start: usize,
-) -> io::Result<(String, usize)> {
-    if bytes.len() <= is_wide as usize * (1 - is_sign_extended as usize) + start {
-        return Err(format_error(
-            io::ErrorKind::UnexpectedEof,
-            "Not enough bytes to process for immediate to register",
-        ));
-    }
-
-    // s/w select encoding width; immediates are always printed signed.
-    let sw = is_wide as u8 | ((is_sign_extended as u8) << 1);
-    match sw {
-        0b00 | 0b10 => Ok(((bytes[start] as i8).to_string(), 1)),
-        0b11 => Ok(((bytes[start] as i8 as i16).to_string(), 1)),
-        0b01 => Ok((
-            i16::from_le_bytes([bytes[start], bytes[start + 1]]).to_string(),
-            2,
-        )),
-        _ => unreachable!(),
+pub(super) fn read_imm(
+    cur: &mut Cursor<'_>,
+    wide: bool,
+    sign_extend: bool,
+) -> Result<i16, DecodeError> {
+    match (wide, sign_extend) {
+        (true, false) => Ok(cur.i16()?),
+        _ => Ok(i16::from(cur.i8()?)),
     }
 }
 
-pub(super) fn with_size_prefix(operand: String, is_memory: bool, w_bit: bool) -> String {
-    if !is_memory {
-        return operand;
+pub(super) fn with_size(operand: Operand, wide: bool) -> Operand {
+    match operand {
+        Operand::Memory {
+            ea, disp, direct, ..
+        } => Operand::Memory {
+            ea,
+            disp,
+            direct,
+            size: Some(if wide { Width::Word } else { Width::Byte }),
+        },
+        other => other,
     }
-    let size = if w_bit { "word" } else { "byte" };
-    format!("{size} {operand}")
+}
+
+fn memory_ea(rm: u8, disp: i16) -> Operand {
+    Operand::Memory {
+        ea: Some(EFFECTIVE_ADDRESS[usize::from(rm)]),
+        disp,
+        direct: false,
+        size: None,
+    }
+}
+
+fn memory_direct(addr: u16) -> Operand {
+    Operand::Memory {
+        ea: None,
+        disp: addr as i16,
+        direct: true,
+        size: None,
+    }
 }

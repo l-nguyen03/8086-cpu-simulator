@@ -24,11 +24,10 @@ fn main() -> io::Result<()> {
     let mut writer = BufWriter::new(fs::File::create(&out_path)?);
     writer.write_all(b"bits 16\n")?;
 
-    let mut offset = 0;
-    while offset < bytes.len() {
-        let (instruction, size) = decode::instruction(&bytes[offset..])?;
+    let mut cur = decode::Cursor::new(&bytes);
+    while !cur.is_empty() {
+        let instruction = decode::instruction(&mut cur)?;
         writeln!(writer, "{instruction}")?;
-        offset += size;
     }
 
     Ok(())
