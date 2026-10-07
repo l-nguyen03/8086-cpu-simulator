@@ -1,12 +1,38 @@
 use super::encoding::{acc, read_imm, read_modrm, read_rm, register, with_size};
 use super::{Cursor, DecodeError};
-use crate::instruction::{Instruction, Operand};
+use crate::instruction::{Instruction, Operand, Operation};
 
-pub(super) fn alu_op(op: u8) -> Result<&'static str, DecodeError> {
+const JCC: [Operation; 16] = [
+    Operation::Jo,
+    Operation::Jno,
+    Operation::Jb,
+    Operation::Jnb,
+    Operation::Je,
+    Operation::Jne,
+    Operation::Jbe,
+    Operation::Jnbe,
+    Operation::Js,
+    Operation::Jns,
+    Operation::Jp,
+    Operation::Jnp,
+    Operation::Jl,
+    Operation::Jnl,
+    Operation::Jle,
+    Operation::Jnle,
+];
+
+const LOOP: [Operation; 4] = [
+    Operation::Loopnz,
+    Operation::Loopz,
+    Operation::Loop,
+    Operation::Jcxz,
+];
+
+pub(super) fn alu_op(op: u8) -> Result<Operation, DecodeError> {
     match op & 7 {
-        0 => Ok("add"),
-        5 => Ok("sub"),
-        7 => Ok("cmp"),
+        0 => Ok(Operation::Add),
+        5 => Ok(Operation::Sub),
+        7 => Ok(Operation::Cmp),
         other => Err(DecodeError::UnsupportedAlu(other)),
     }
 }
@@ -17,12 +43,12 @@ fn order_operands(d: bool, reg: Operand, rm: Operand) -> (Operand, Operand) {
 
 pub(super) fn decode_rm_reg(
     cur: &mut Cursor<'_>,
-    mnemonic: &'static str,
+    mnemonic: Operation,
     d: bool,
     w: bool,
 ) -> Result<Instruction, DecodeError> {
     let modrm = read_modrm(cur)?;
-    let reg = Operand::Register(register(w, modrm.reg));
+    let reg = register(w, modrm.reg);
     let rm = read_rm(cur, &modrm, w)?;
     let (dst, src) = order_operands(d, reg, rm);
     Ok(Instruction::binary(mnemonic, dst, src))
@@ -32,7 +58,7 @@ pub(super) fn decode_imm_rm(
     cur: &mut Cursor<'_>,
     w: bool,
     sign_extend: bool,
-    mnemonic: impl FnOnce(u8) -> Result<&'static str, DecodeError>,
+    mnemonic: impl FnOnce(u8) -> Result<Operation, DecodeError>,
 ) -> Result<Instruction, DecodeError> {
     let modrm = read_modrm(cur)?;
     let mnemonic = mnemonic(modrm.reg)?;
@@ -48,15 +74,11 @@ pub(super) fn decode_imm_rm(
 
 pub(super) fn decode_imm_acc(
     cur: &mut Cursor<'_>,
-    mnemonic: &'static str,
+    mnemonic: Operation,
     w: bool,
 ) -> Result<Instruction, DecodeError> {
     let imm = read_imm(cur, w, false)?;
-    Ok(Instruction::binary(
-        mnemonic,
-        Operand::Register(acc(w)),
-        Operand::Imm(imm),
-    ))
+    Ok(Instruction::binary(mnemonic, acc(w), Operand::Imm(imm)))
 }
 
 pub(super) fn decode_imm_reg(
@@ -66,8 +88,8 @@ pub(super) fn decode_imm_reg(
 ) -> Result<Instruction, DecodeError> {
     let imm = read_imm(cur, w, false)?;
     Ok(Instruction::binary(
-        "mov",
-        Operand::Register(register(w, reg)),
+        Operation::Mov,
+        register(w, reg),
         Operand::Imm(imm),
     ))
 }
@@ -78,7 +100,7 @@ pub(super) fn decode_acc_mem(
     w: bool,
 ) -> Result<Instruction, DecodeError> {
     let addr = cur.u16()?;
-    let acc = Operand::Register(acc(w));
+    let acc = acc(w);
     let mem = Operand::Memory {
         ea: None,
         disp: addr as i16,
@@ -86,13 +108,19 @@ pub(super) fn decode_acc_mem(
         size: None,
     };
     let (dst, src) = if d { (mem, acc) } else { (acc, mem) };
-    Ok(Instruction::binary("mov", dst, src))
+    Ok(Instruction::binary(Operation::Mov, dst, src))
 }
 
 pub(super) fn decode_jump(
     cur: &mut Cursor<'_>,
-    mnemonic: &'static str,
+    op: u8,
+    is_loop: bool,
 ) -> Result<Instruction, DecodeError> {
+    let mnemonic = if is_loop {
+        JCC[usize::from(op & 0xF)]
+    } else {
+        LOOP[usize::from(op & 0x3)]
+    };
     Ok(Instruction::unary(
         mnemonic,
         Operand::Imm(i16::from(cur.i8()?)),

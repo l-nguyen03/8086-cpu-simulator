@@ -9,14 +9,7 @@ use forms::{
     decode_rm_reg,
 };
 
-use crate::instruction::Instruction;
-
-const JCC: [&str; 16] = [
-    "jo", "jno", "jb", "jnb", "je", "jne", "jbe", "jnbe", "js", "jns", "jp", "jnp", "jl", "jnl",
-    "jle", "jnle",
-];
-
-const LOOP: [&str; 4] = ["loopnz", "loopz", "loop", "jcxz"];
+use crate::instruction::{Instruction, Operation};
 
 #[derive(Debug)]
 pub enum DecodeError {
@@ -96,12 +89,12 @@ pub fn instruction(cur: &mut Cursor<'_>) -> Result<Instruction, DecodeError> {
     let d = opcode & 2 != 0;
 
     match opcode {
-        op if op & 0b1111_1100 == 0b1000_1000 => decode_rm_reg(cur, "mov", d, w),
+        op if op & 0b1111_1100 == 0b1000_1000 => decode_rm_reg(cur, Operation::Mov, d, w),
         op if op & 0b1111_1100 == 0b1010_0000 => decode_acc_mem(cur, d, w),
         op if op & 0b1111_0000 == 0b1011_0000 => decode_imm_reg(cur, (op >> 3) & 1 != 0, op & 7),
         op if op & 0b1111_1110 == 0b1100_0110 => decode_imm_rm(cur, w, false, |reg| {
             if reg == 0 {
-                Ok("mov")
+                Ok(Operation::Mov)
             } else {
                 Err(DecodeError::InvalidMovRm)
             }
@@ -109,8 +102,8 @@ pub fn instruction(cur: &mut Cursor<'_>) -> Result<Instruction, DecodeError> {
         op if op & 0b1100_0100 == 0b0000_0100 => decode_imm_acc(cur, alu_op(op >> 3)?, w),
         op if op & 0b1111_1100 == 0b1000_0000 => decode_imm_rm(cur, w, d, alu_op),
         op if op & 0b1100_0100 == 0b0000_0000 => decode_rm_reg(cur, alu_op(op >> 3)?, d, w),
-        op if op & 0b1111_0000 == 0b0111_0000 => decode_jump(cur, JCC[usize::from(op & 0xF)]),
-        op if op & 0b1111_1100 == 0b1110_0000 => decode_jump(cur, LOOP[usize::from(op & 3)]),
+        op if op & 0b1111_0000 == 0b0111_0000 => decode_jump(cur, op, false),
+        op if op & 0b1111_1100 == 0b1110_0000 => decode_jump(cur, op, true),
         _ => Err(DecodeError::UnknownOpcode(opcode)),
     }
 }

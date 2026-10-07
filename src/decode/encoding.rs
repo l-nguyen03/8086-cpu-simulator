@@ -1,15 +1,9 @@
 use super::{Cursor, DecodeError};
 use crate::instruction::{Operand, Width};
 
-const BYTE_REGISTER: [&str; 8] = ["al", "cl", "dl", "bl", "ah", "ch", "dh", "bh"];
-const WORD_REGISTER: [&str; 8] = ["ax", "cx", "dx", "bx", "sp", "bp", "si", "di"];
-const REGISTER_MAPS: [[&str; 8]; 2] = [BYTE_REGISTER, WORD_REGISTER];
-
 const EFFECTIVE_ADDRESS: [&str; 8] = [
     "bx + si", "bx + di", "bp + si", "bp + di", "si", "di", "bp", "bx",
 ];
-
-const ACC_REG: [&str; 2] = ["al", "ax"];
 
 pub(super) struct ModRm {
     pub(super) mode: u8,
@@ -27,12 +21,25 @@ impl ModRm {
     }
 }
 
-pub(super) fn register(wide: bool, index: u8) -> &'static str {
-    REGISTER_MAPS[usize::from(wide)][usize::from(index)]
+pub(super) fn register(wide: bool, index: u8) -> Operand {
+    Operand::Register {
+        index: index as usize,
+        width: if wide { Width::Word } else { Width::Byte },
+    }
 }
 
-pub(super) fn acc(wide: bool) -> &'static str {
-    ACC_REG[usize::from(wide)]
+pub(super) fn acc(wide: bool) -> Operand {
+    if wide {
+        Operand::Register {
+            index: 0,
+            width: Width::Word,
+        }
+    } else {
+        Operand::Register {
+            index: 0,
+            width: Width::Byte,
+        }
+    }
 }
 
 pub(super) fn read_modrm(cur: &mut Cursor<'_>) -> Result<ModRm, DecodeError> {
@@ -45,7 +52,7 @@ pub(super) fn read_rm(
     wide: bool,
 ) -> Result<Operand, DecodeError> {
     match modrm.mode {
-        0b11 => Ok(Operand::Register(register(wide, modrm.rm))),
+        0b11 => Ok(register(wide, modrm.rm)),
         0b01 => Ok(memory_ea(modrm.rm, i16::from(cur.i8()?))),
         0b10 => Ok(memory_ea(modrm.rm, cur.i16()?)),
         0b00 => {

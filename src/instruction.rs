@@ -1,5 +1,8 @@
 use std::fmt;
 
+pub(super) const BYTE_REGISTER: [&str; 8] = ["al", "cl", "dl", "bl", "ah", "ch", "dh", "bh"];
+pub(super) const WORD_REGISTER: [&str; 8] = ["ax", "cx", "dx", "bx", "sp", "bp", "si", "di"];
+
 #[derive(Clone, Copy)]
 pub enum Width {
     Byte,
@@ -7,7 +10,10 @@ pub enum Width {
 }
 
 pub enum Operand {
-    Register(&'static str),
+    Register {
+        index: usize,
+        width: Width,
+    },
     Memory {
         ea: Option<&'static str>,
         disp: i16,
@@ -17,14 +23,42 @@ pub enum Operand {
     Imm(i16),
 }
 
+#[derive(Clone, Copy)]
+pub enum Operation {
+    Mov,
+    Add,
+    Sub,
+    Cmp,
+    Jo,
+    Jno,
+    Jb,
+    Jnb,
+    Je,
+    Jne,
+    Jbe,
+    Jnbe,
+    Js,
+    Jns,
+    Jp,
+    Jnp,
+    Jl,
+    Jnl,
+    Jle,
+    Jnle,
+    Loopnz,
+    Loopz,
+    Loop,
+    Jcxz,
+}
+
 pub struct Instruction {
-    mnemonic: &'static str,
+    mnemonic: Operation,
     dst: Operand,
     src: Option<Operand>,
 }
 
 impl Instruction {
-    pub fn binary(mnemonic: &'static str, dst: Operand, src: Operand) -> Self {
+    pub fn binary(mnemonic: Operation, dst: Operand, src: Operand) -> Self {
         Self {
             mnemonic,
             dst,
@@ -32,7 +66,7 @@ impl Instruction {
         }
     }
 
-    pub fn unary(mnemonic: &'static str, dst: Operand) -> Self {
+    pub fn unary(mnemonic: Operation, dst: Operand) -> Self {
         Self {
             mnemonic,
             dst,
@@ -53,7 +87,10 @@ impl fmt::Display for Instruction {
 impl fmt::Display for Operand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Operand::Register(name) => write!(f, "{name}"),
+            Operand::Register { index, width } => match width {
+                Width::Byte => write!(f, "{}", BYTE_REGISTER[*index]),
+                Width::Word => write!(f, "{}", WORD_REGISTER[*index]),
+            },
             Operand::Imm(value) => write!(f, "{value}"),
             Operand::Memory {
                 ea,
@@ -77,6 +114,37 @@ impl fmt::Display for Operand {
                     }
                 }
             }
+        }
+    }
+}
+
+impl fmt::Display for Operation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Operation::Mov => write!(f, "mov"),
+            Operation::Add => write!(f, "add"),
+            Operation::Sub => write!(f, "sub"),
+            Operation::Cmp => write!(f, "cmp"),
+            Operation::Jo => write!(f, "jo"),
+            Operation::Jno => write!(f, "jno"),
+            Operation::Jb => write!(f, "jb"),
+            Operation::Jnb => write!(f, "jnb"),
+            Operation::Je => write!(f, "je"),
+            Operation::Jne => write!(f, "jne"),
+            Operation::Jbe => write!(f, "jbe"),
+            Operation::Jnbe => write!(f, "jnbe"),
+            Operation::Js => write!(f, "js"),
+            Operation::Jns => write!(f, "jns"),
+            Operation::Jp => write!(f, "jp"),
+            Operation::Jnp => write!(f, "jnp"),
+            Operation::Jl => write!(f, "jl"),
+            Operation::Jnl => write!(f, "jnl"),
+            Operation::Jle => write!(f, "jle"),
+            Operation::Jnle => write!(f, "jnle"),
+            Operation::Loopnz => write!(f, "loopnz"),
+            Operation::Loopz => write!(f, "loopz"),
+            Operation::Loop => write!(f, "loop"),
+            Operation::Jcxz => write!(f, "jcxz"),
         }
     }
 }
