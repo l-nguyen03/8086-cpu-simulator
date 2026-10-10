@@ -22,7 +22,7 @@ impl ModRm {
 }
 
 pub(super) fn register(wide: bool, index: u8) -> Operand {
-    Operand::Register {
+    Operand::GeneralRegister {
         index: index as usize,
         width: if wide { Width::Word } else { Width::Byte },
     }
@@ -30,12 +30,12 @@ pub(super) fn register(wide: bool, index: u8) -> Operand {
 
 pub(super) fn acc(wide: bool) -> Operand {
     if wide {
-        Operand::Register {
+        Operand::GeneralRegister {
             index: 0,
             width: Width::Word,
         }
     } else {
-        Operand::Register {
+        Operand::GeneralRegister {
             index: 0,
             width: Width::Byte,
         }

@@ -54,6 +54,16 @@ pub(super) fn decode_rm_reg(
     Ok(Instruction::binary(mnemonic, dst, src))
 }
 
+pub(super) fn decode_sr_rm(cur: &mut Cursor<'_>, d: bool) -> Result<Instruction, DecodeError> {
+    let modrm = read_modrm(cur)?;
+    let segment_reg = Operand::SegmentRegister {
+        index: (0b11 & modrm.reg) as usize,
+    };
+    let rm = read_rm(cur, &modrm, true)?;
+    let (dst, src) = order_operands(d, segment_reg, rm);
+    Ok(Instruction::binary(Operation::Mov, dst, src))
+}
+
 pub(super) fn decode_imm_rm(
     cur: &mut Cursor<'_>,
     w: bool,

@@ -6,7 +6,7 @@ use std::io;
 
 use forms::{
     alu_op, decode_acc_mem, decode_imm_acc, decode_imm_reg, decode_imm_rm, decode_jump,
-    decode_rm_reg,
+    decode_rm_reg, decode_sr_rm,
 };
 
 use crate::instruction::{Instruction, Operation};
@@ -99,6 +99,7 @@ pub fn instruction(cur: &mut Cursor<'_>) -> Result<Instruction, DecodeError> {
                 Err(DecodeError::InvalidMovRm)
             }
         }),
+        op if op & 0b1111_1100 == 0b1000_1100 => decode_sr_rm(cur, (op & 0b10) >> 1 == 0b1),
         op if op & 0b1100_0100 == 0b0000_0100 => decode_imm_acc(cur, alu_op(op >> 3)?, w),
         op if op & 0b1111_1100 == 0b1000_0000 => decode_imm_rm(cur, w, d, alu_op),
         op if op & 0b1100_0100 == 0b0000_0000 => decode_rm_reg(cur, alu_op(op >> 3)?, d, w),

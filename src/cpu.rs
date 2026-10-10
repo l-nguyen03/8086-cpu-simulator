@@ -1,4 +1,4 @@
-use crate::instruction::{Instruction, Operand, Operation, WORD_REGISTER, Width};
+use crate::instruction::{Instruction, Operand, Operation, SEGMENT_REGISTER, WORD_REGISTER, Width};
 use std::fmt;
 
 fn get_byte_shift(index: usize) -> u8 {
@@ -8,6 +8,7 @@ fn get_byte_shift(index: usize) -> u8 {
 #[derive(Default, Clone, Copy)]
 pub struct Cpu {
     registers: [u16; 8],
+    segment_registers: [u16; 4],
 }
 
 impl Cpu {
@@ -27,7 +28,8 @@ impl Cpu {
 
     fn read(&self, operand: Operand) -> u16 {
         match operand {
-            Operand::Register { index, width } => self.read_register(index, width),
+            Operand::GeneralRegister { index, width } => self.read_register(index, width),
+            Operand::SegmentRegister { index } => self.segment_registers[index],
             Operand::Imm(value) => value as u16,
             _ => unimplemented!(),
         }
@@ -35,7 +37,8 @@ impl Cpu {
 
     fn write(&mut self, operand: Operand, value: u16) {
         match operand {
-            Operand::Register { index, width } => self.write_register(index, width, value),
+            Operand::GeneralRegister { index, width } => self.write_register(index, width, value),
+            Operand::SegmentRegister { index } => self.segment_registers[index] = value,
             _ => unimplemented!(),
         }
     }
@@ -71,6 +74,14 @@ impl fmt::Display for Cpu {
                 f,
                 "{}: {:#06X}",
                 WORD_REGISTER[index], self.registers[index]
+            )?
+        }
+
+        for index in 0..self.segment_registers.len() {
+            writeln!(
+                f,
+                "{}: {:#06X}",
+                SEGMENT_REGISTER[index], self.segment_registers[index]
             )?
         }
         Ok(())

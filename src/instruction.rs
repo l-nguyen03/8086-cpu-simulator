@@ -2,6 +2,7 @@ use std::fmt;
 
 pub(super) const BYTE_REGISTER: [&str; 8] = ["al", "cl", "dl", "bl", "ah", "ch", "dh", "bh"];
 pub(super) const WORD_REGISTER: [&str; 8] = ["ax", "cx", "dx", "bx", "sp", "bp", "si", "di"];
+pub(super) const SEGMENT_REGISTER: [&str; 4] = ["es", "cs", "ss", "ds"];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Width {
@@ -11,7 +12,10 @@ pub enum Width {
 
 #[derive(Clone, Copy)]
 pub enum Operand {
-    Register {
+    SegmentRegister {
+        index: usize,
+    },
+    GeneralRegister {
         index: usize,
         width: Width,
     },
@@ -89,10 +93,11 @@ impl fmt::Display for Instruction {
 impl fmt::Display for Operand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Operand::Register { index, width } => match width {
+            Operand::GeneralRegister { index, width } => match width {
                 Width::Byte => write!(f, "{}", BYTE_REGISTER[*index]),
                 Width::Word => write!(f, "{}", WORD_REGISTER[*index]),
             },
+            Operand::SegmentRegister { index } => write!(f, "{}", SEGMENT_REGISTER[*index]),
             Operand::Imm(value) => write!(f, "{value}"),
             Operand::Memory {
                 ea,
