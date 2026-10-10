@@ -3,12 +3,13 @@ use std::fmt;
 pub(super) const BYTE_REGISTER: [&str; 8] = ["al", "cl", "dl", "bl", "ah", "ch", "dh", "bh"];
 pub(super) const WORD_REGISTER: [&str; 8] = ["ax", "cx", "dx", "bx", "sp", "bp", "si", "di"];
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Width {
     Byte,
     Word,
 }
 
+#[derive(Clone, Copy)]
 pub enum Operand {
     Register {
         index: usize,
@@ -51,10 +52,11 @@ pub enum Operation {
     Jcxz,
 }
 
+#[derive(Clone, Copy)]
 pub struct Instruction {
-    mnemonic: Operation,
-    dst: Operand,
-    src: Option<Operand>,
+    pub mnemonic: Operation,
+    pub dst: Operand,
+    pub src: Option<Operand>,
 }
 
 impl Instruction {
