@@ -56,6 +56,36 @@ pub enum Operation {
     Jcxz,
 }
 
+const SHORT_JUMP_LENGTH: i16 = 2;
+
+impl Operation {
+    const fn is_short_jump(self) -> bool {
+        matches!(
+            self,
+            Operation::Jo
+                | Operation::Jno
+                | Operation::Jb
+                | Operation::Jnb
+                | Operation::Je
+                | Operation::Jne
+                | Operation::Jbe
+                | Operation::Jnbe
+                | Operation::Js
+                | Operation::Jns
+                | Operation::Jp
+                | Operation::Jnp
+                | Operation::Jl
+                | Operation::Jnl
+                | Operation::Jle
+                | Operation::Jnle
+                | Operation::Loopnz
+                | Operation::Loopz
+                | Operation::Loop
+                | Operation::Jcxz
+        )
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct Instruction {
     pub mnemonic: Operation,
@@ -83,9 +113,12 @@ impl Instruction {
 
 impl fmt::Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.src {
-            Some(src) => write!(f, "{} {}, {}", self.mnemonic, self.dst, src),
-            None => write!(f, "{} {}", self.mnemonic, self.dst),
+        match (&self.src, self.dst) {
+            (Some(src), dst) => write!(f, "{} {}, {}", self.mnemonic, dst, src),
+            (None, Operand::Imm(disp)) if self.mnemonic.is_short_jump() => {
+                write!(f, "{} ${:+}", self.mnemonic, disp + SHORT_JUMP_LENGTH)
+            }
+            (None, dst) => write!(f, "{} {}", self.mnemonic, dst),
         }
     }
 }

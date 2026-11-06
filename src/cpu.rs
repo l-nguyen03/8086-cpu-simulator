@@ -1,6 +1,6 @@
+use crate::decode::Cursor;
 use crate::instruction::{Instruction, Operand, Operation, SEGMENT_REGISTER, WORD_REGISTER, Width};
 use std::fmt;
-use std::vec::Vec;
 
 #[repr(u8)]
 #[derive(Clone, Copy)]
@@ -85,11 +85,13 @@ fn get_carry(result: ArithmeticResult) -> u16 {
     (result.value > result.dst) as u16
 }
 
+const CX: usize = 1;
+
 #[derive(Default, Clone)]
 pub struct Cpu {
     registers: [u16; 8],
     segment_registers: [u16; 4],
-    flags_register: Vec<u16>,
+    flags_register: u16,
 }
 
 impl Cpu {
@@ -105,10 +107,10 @@ impl Cpu {
         Flag::Overflow,
     ];
 
-    pub fn execute(&mut self, instruction: Instruction) {
+    pub fn execute(&mut self, cursor: &mut Cursor, instruction: Instruction) {
         match instruction.src {
             Some(src) => self.execute_binary(instruction.mnemonic, src, instruction.dst),
-            None => unimplemented!(),
+            None => self.execute_control_flow(cursor, instruction.mnemonic, instruction.dst),
         }
     }
 
@@ -120,6 +122,56 @@ impl Cpu {
             Operation::Cmp => self.cmp(dst, src),
             _ => unimplemented!(),
         }
+    }
+
+    fn execute_control_flow(
+        &mut self,
+        cursor: &mut Cursor,
+        instruction: Operation,
+        offset: Operand,
+    ) {
+        let Operand::Imm(offset) = offset else {
+            panic!("Invalid offset to control flow")
+        };
+
+        let jump = match instruction {
+            Operation::Jo => self.flag(Flag::Overflow),
+            Operation::Jno => !self.flag(Flag::Overflow),
+            Operation::Jb => self.flag(Flag::Carry),
+            Operation::Jnb => !self.flag(Flag::Carry),
+            Operation::Je => self.flag(Flag::Zero),
+            Operation::Jne => !self.flag(Flag::Zero),
+            Operation::Jbe => self.flag(Flag::Carry) | self.flag(Flag::Zero),
+            Operation::Jnbe => !(self.flag(Flag::Carry) | self.flag(Flag::Zero)),
+            Operation::Js => self.flag(Flag::Sign),
+            Operation::Jns => !self.flag(Flag::Sign),
+            Operation::Jp => self.flag(Flag::Parity),
+            Operation::Jnp => !self.flag(Flag::Parity),
+            Operation::Jl => self.flag(Flag::Sign) != self.flag(Flag::Overflow),
+            Operation::Jnl => self.flag(Flag::Sign) == self.flag(Flag::Overflow),
+            Operation::Jle => {
+                self.flag(Flag::Zero) | (self.flag(Flag::Sign) != self.flag(Flag::Overflow))
+            }
+            Operation::Jnle => {
+                !self.flag(Flag::Zero) & (self.flag(Flag::Sign) == self.flag(Flag::Overflow))
+            }
+            Operation::Loopnz => (self.decrement_cx() != 0) & !self.flag(Flag::Zero),
+            Operation::Loopz => (self.decrement_cx() != 0) & self.flag(Flag::Zero),
+            Operation::Loop => self.decrement_cx() != 0,
+            Operation::Jcxz => self.registers[CX] == 0,
+            _ => unreachable!("{instruction} is not a control flow instruction"),
+        };
+
+        cursor.move_cursor_by(jump as i16 * offset);
+    }
+
+    fn flag(&self, flag: Flag) -> bool {
+        self.flags_register & flag.as_mask() != 0
+    }
+
+    fn decrement_cx(&mut self) -> u16 {
+        self.registers[CX] = self.registers[CX].wrapping_sub(1);
+        self.registers[CX]
     }
 
     fn read(&self, operand: Operand) -> u16 {
@@ -189,34 +241,19 @@ impl Cpu {
         let sign = ((result.value & 0x8000) == 0x8000) as u16;
         let auxiliary_carry = (((result.value ^ result.src ^ result.dst) & 0x10) == 0x10) as u16;
 
-        match self.flags_register.last() {
-            Some(last_flag) => {
-                self.flags_register.push(
-                    *last_flag
-                        & !(Flag::Carry.as_mask()
-                            | Flag::Parity.as_mask()
-                            | Flag::Zero.as_mask()
-                            | Flag::Sign.as_mask()
-                            | Flag::Overflow.as_mask()
-                            | Flag::Auxiliary.as_mask())
-                        | (carry * Flag::Carry.as_mask())
-                        | (parity * Flag::Parity.as_mask())
-                        | (zero * Flag::Zero.as_mask())
-                        | (sign * Flag::Sign.as_mask())
-                        | (overflow * Flag::Overflow.as_mask())
-                        | (auxiliary_carry * Flag::Auxiliary.as_mask()),
-                );
-            }
-
-            None => self.flags_register.push(
-                0u16 | (carry * Flag::Carry.as_mask())
-                    | (parity * Flag::Parity.as_mask())
-                    | (zero * Flag::Zero.as_mask())
-                    | (sign * Flag::Sign.as_mask())
-                    | (overflow * Flag::Overflow.as_mask())
-                    | (auxiliary_carry * Flag::Auxiliary.as_mask()),
-            ),
-        }
+        self.flags_register = (self.flags_register
+            & !(Flag::Carry.as_mask()
+                | Flag::Parity.as_mask()
+                | Flag::Zero.as_mask()
+                | Flag::Sign.as_mask()
+                | Flag::Overflow.as_mask()
+                | Flag::Auxiliary.as_mask()))
+            | (carry * Flag::Carry.as_mask())
+            | (parity * Flag::Parity.as_mask())
+            | (zero * Flag::Zero.as_mask())
+            | (sign * Flag::Sign.as_mask())
+            | (overflow * Flag::Overflow.as_mask())
+            | (auxiliary_carry * Flag::Auxiliary.as_mask());
     }
 
     fn read_register(&self, index: usize, width: Width) -> u16 {
@@ -261,18 +298,13 @@ impl fmt::Display for Cpu {
             )?
         }
 
-        if !self.flags_register.is_empty() {
-            for (index, flag_history) in self.flags_register.iter().enumerate() {
-                writeln!(f, "{:=^16}", format!("{} version", index))?;
-                for flag in Cpu::FLAGS {
-                    writeln!(
-                        f,
-                        "{}: {:1}",
-                        flag.get_name(),
-                        (*flag_history & flag.as_mask()) >> (flag as u16)
-                    )?
-                }
-            }
+        for flag in Cpu::FLAGS {
+            writeln!(
+                f,
+                "{}: {:1}",
+                flag.get_name(),
+                (self.flags_register & flag.as_mask()) >> (flag as u16)
+            )?
         }
 
         Ok(())

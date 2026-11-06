@@ -42,7 +42,7 @@ fn order_operands(d: bool, reg: Operand, rm: Operand) -> (Operand, Operand) {
 }
 
 pub(super) fn decode_rm_reg(
-    cur: &mut Cursor<'_>,
+    cur: &mut Cursor,
     mnemonic: Operation,
     d: bool,
     w: bool,
@@ -54,7 +54,7 @@ pub(super) fn decode_rm_reg(
     Ok(Instruction::binary(mnemonic, dst, src))
 }
 
-pub(super) fn decode_sr_rm(cur: &mut Cursor<'_>, d: bool) -> Result<Instruction, DecodeError> {
+pub(super) fn decode_sr_rm(cur: &mut Cursor, d: bool) -> Result<Instruction, DecodeError> {
     let modrm = read_modrm(cur)?;
     let segment_reg = Operand::SegmentRegister {
         index: (0b11 & modrm.reg) as usize,
@@ -65,7 +65,7 @@ pub(super) fn decode_sr_rm(cur: &mut Cursor<'_>, d: bool) -> Result<Instruction,
 }
 
 pub(super) fn decode_imm_rm(
-    cur: &mut Cursor<'_>,
+    cur: &mut Cursor,
     w: bool,
     sign_extend: bool,
     mnemonic: impl FnOnce(u8) -> Result<Operation, DecodeError>,
@@ -83,7 +83,7 @@ pub(super) fn decode_imm_rm(
 }
 
 pub(super) fn decode_imm_acc(
-    cur: &mut Cursor<'_>,
+    cur: &mut Cursor,
     mnemonic: Operation,
     w: bool,
 ) -> Result<Instruction, DecodeError> {
@@ -92,7 +92,7 @@ pub(super) fn decode_imm_acc(
 }
 
 pub(super) fn decode_imm_reg(
-    cur: &mut Cursor<'_>,
+    cur: &mut Cursor,
     w: bool,
     reg: u8,
 ) -> Result<Instruction, DecodeError> {
@@ -105,7 +105,7 @@ pub(super) fn decode_imm_reg(
 }
 
 pub(super) fn decode_acc_mem(
-    cur: &mut Cursor<'_>,
+    cur: &mut Cursor,
     d: bool,
     w: bool,
 ) -> Result<Instruction, DecodeError> {
@@ -122,14 +122,14 @@ pub(super) fn decode_acc_mem(
 }
 
 pub(super) fn decode_jump(
-    cur: &mut Cursor<'_>,
+    cur: &mut Cursor,
     op: u8,
     is_loop: bool,
 ) -> Result<Instruction, DecodeError> {
     let mnemonic = if is_loop {
-        JCC[usize::from(op & 0xF)]
-    } else {
         LOOP[usize::from(op & 0x3)]
+    } else {
+        JCC[usize::from(op & 0xF)]
     };
     Ok(Instruction::unary(
         mnemonic,

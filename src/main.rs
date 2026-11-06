@@ -29,6 +29,17 @@ impl Write for Output {
     }
 }
 
+fn execute_and_print(
+    cpu: &mut Cpu,
+    cur: &mut decode::Cursor,
+    instruction: Instruction,
+    out: &mut dyn Write,
+) -> io::Result<()> {
+    cpu.execute(cur, instruction);
+    writeln!(out, "{cpu}")?;
+    writeln!(out, "ip: {:#06X}", cur.current_position())
+}
+
 fn main() -> io::Result<()> {
     let args = Args::parse();
 
@@ -44,22 +55,19 @@ fn main() -> io::Result<()> {
     buf_writer.write_all(b"bits 16\n")?;
 
     let mut cpu = Cpu::default();
-    let mut instruction_vec: Vec<Instruction> = Vec::new();
 
-    let mut cur = decode::Cursor::new(&bytes);
-    while !cur.is_empty() {
+    let execute: fn(&mut Cpu, &mut decode::Cursor, Instruction, &mut dyn Write) -> io::Result<()> =
+        if args.exec {
+            execute_and_print
+        } else {
+            |_, _, _, _| Ok(())
+        };
+
+    let mut cur = decode::Cursor::new(bytes);
+    while !cur.is_finished() {
         let instruction = decode::instruction(&mut cur)?;
         writeln!(buf_writer, "{instruction}")?;
-        instruction_vec.push(instruction);
-    }
-
-    if args.exec {
-        for instruction in instruction_vec {
-            cpu.execute(instruction)
-        }
-
-        writeln!(buf_writer, "Final registers' state:")?;
-        writeln!(buf_writer, "{cpu}")?;
+        execute(&mut cpu, &mut cur, instruction, &mut buf_writer)?;
     }
 
     Ok(())

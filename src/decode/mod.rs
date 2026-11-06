@@ -49,23 +49,42 @@ impl From<DecodeError> for io::Error {
     }
 }
 
-pub struct Cursor<'a> {
-    bytes: &'a [u8],
+pub struct Cursor {
+    bytes: Vec<u8>,
+    byte_cursor: usize,
+    total_byte_length: usize,
 }
 
-impl<'a> Cursor<'a> {
-    pub fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes }
+impl Cursor {
+    pub fn new(bytes: Vec<u8>) -> Self {
+        let total_byte_length = bytes.len();
+        Self {
+            bytes,
+            byte_cursor: 0,
+            total_byte_length,
+        }
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.bytes.is_empty()
+    pub fn is_finished(&self) -> bool {
+        // This means that we have read everything and nothing to execute anymore
+        self.byte_cursor >= self.total_byte_length
+    }
+
+    pub fn current_position(&self) -> usize {
+        self.byte_cursor
+    }
+
+    pub fn move_cursor_by(&mut self, offset: i16) {
+        self.byte_cursor = self.byte_cursor.saturating_add_signed(offset as isize);
     }
 
     fn u8(&mut self) -> Result<u8, DecodeError> {
-        let (byte, rest) = self.bytes.split_first().ok_or(DecodeError::UnexpectedEof)?;
-        self.bytes = rest;
-        Ok(*byte)
+        if self.byte_cursor < self.total_byte_length {
+            let byte = self.bytes[self.byte_cursor];
+            self.byte_cursor += 1;
+            return Ok(byte);
+        }
+        Err(DecodeError::UnexpectedEof)
     }
 
     fn i8(&mut self) -> Result<i8, DecodeError> {
@@ -83,7 +102,7 @@ impl<'a> Cursor<'a> {
     }
 }
 
-pub fn instruction(cur: &mut Cursor<'_>) -> Result<Instruction, DecodeError> {
+pub fn instruction(cur: &mut Cursor) -> Result<Instruction, DecodeError> {
     let opcode = cur.u8()?;
     let w = opcode & 1 != 0;
     let d = opcode & 2 != 0;
@@ -116,15 +135,15 @@ mod tests {
     #[test]
     fn add_ax_bx_at_eof() {
         let bytes = [0x03, 0xC3];
-        let mut cur = Cursor::new(&bytes);
+        let mut cur = Cursor::new(bytes.to_vec());
         let inst = instruction(&mut cur).unwrap();
-        assert!(cur.is_empty());
+        assert!(cur.is_finished());
         assert_eq!(inst.to_string(), "add ax, bx");
     }
 
     #[test]
     fn truncated_rm_reg_is_eof() {
-        let mut cur = Cursor::new(&[0x03]);
+        let mut cur = Cursor::new(Vec::from([0x03]));
         assert!(matches!(
             instruction(&mut cur),
             Err(DecodeError::UnexpectedEof)

@@ -42,15 +42,11 @@ pub(super) fn acc(wide: bool) -> Operand {
     }
 }
 
-pub(super) fn read_modrm(cur: &mut Cursor<'_>) -> Result<ModRm, DecodeError> {
+pub(super) fn read_modrm(cur: &mut Cursor) -> Result<ModRm, DecodeError> {
     Ok(ModRm::from_byte(cur.u8()?))
 }
 
-pub(super) fn read_rm(
-    cur: &mut Cursor<'_>,
-    modrm: &ModRm,
-    wide: bool,
-) -> Result<Operand, DecodeError> {
+pub(super) fn read_rm(cur: &mut Cursor, modrm: &ModRm, wide: bool) -> Result<Operand, DecodeError> {
     match modrm.mode {
         0b11 => Ok(register(wide, modrm.rm)),
         0b01 => Ok(memory_ea(modrm.rm, i16::from(cur.i8()?))),
@@ -67,7 +63,7 @@ pub(super) fn read_rm(
 }
 
 pub(super) fn read_imm(
-    cur: &mut Cursor<'_>,
+    cur: &mut Cursor,
     wide: bool,
     sign_extend: bool,
 ) -> Result<i16, DecodeError> {
